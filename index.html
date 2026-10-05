@@ -345,16 +345,26 @@ function loginUrl() {
   return 'https://accounts.google.com/AccountChooser?continue=' + encodeURIComponent(target) + '&hd=' + encodeURIComponent(LOGIN_DOMAIN);
 }
 
+/**
+ * 証明の「名前」の部分は、日本語をURLエンコードした文字（%E3%81…）でできている。署名はそのエンコード後の文字列に対するものなので、
+ * 受け取った文字列を、デコードせずに、そのまま送る。万一デコードされて日本語に戻っていたときは、エンコードし直す。
+ */
+function normalizeToken(t) {
+  const parts = String(t).trim().split('.');
+  if (parts.length === 4 && /[^\x00-\x7f]/.test(parts[1])) parts[1] = encodeURIComponent(parts[1]).replace(/\./g, '%2E');
+  return parts.join('.');
+}
+
 async function initAuth() {
   // ダッシュボードから戻ってきたときは、URLの「#k=…」に証明がある。読んだらアドレス欄から消す
   const m = location.hash.match(/[#&]k=([^&]+)/);
   let token = '';
   if (m) {
-    token = decodeURIComponent(m[1]);
+    token = normalizeToken(m[1]);      // ここで decodeURIComponent をしてはいけない（署名が合わなくなる）
     try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
   } else {
     const saved = store.get(AUTH_KEY, null);
-    if (saved && saved.token && tokenExp(saved.token) - Date.now() > 60000) token = saved.token;
+    if (saved && saved.token && tokenExp(saved.token) - Date.now() > 60000) token = normalizeToken(saved.token);
   }
   if (!token) { auth = { token: '', name: '', exp: 0, state: 'out', error: DASHBOARD_URL ? '' : 'config' }; renderAccount(); updateSendButton(); return; }
   await applyToken(token);
