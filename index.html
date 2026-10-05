@@ -346,50 +346,98 @@ function loginUrl() {
 }
 
 /**
- * 証明の「名前」の部分は、日本語をURLエンコードした文字（%E3%81…）でできている。署名はそのエンコード後の文字列に対するものなので、
- * 受け取った文字列を、デコードせずに、そのまま送る。万一デコードされて日本語に戻っていたときは、エンコードし直す。
+ * ログインコード・ログイン証明の「名前」の部分は、日本語をURLエンコードした文字（%E3%81…）でできている。署名はそのエンコード後の文字列に
+ * 対するものなので、受け取った文字列を、デコードせずに、そのまま送る。万一デコードされて日本語に戻っていたときは、エンコードし直す。
  */
 function normalizeToken(t) {
   const parts = String(t).trim().split('.');
-  if (parts.length === 4 && /[^\x00-\x7f]/.test(parts[1])) parts[1] = encodeURIComponent(parts[1]).replace(/\./g, '%2E');
+  if ((parts.length === 4 || parts.length === 5) && /[^\x00-\x7f]/.test(parts[1])) parts[1] = encodeURIComponent(parts[1]).replace(/\./g, '%2E');
   return parts.join('.');
 }
 
+const CODE_KEY = 'qaCode';    // 引き換え前のログインコード（引き換え中に再読み込みしても、続けられるように）
 async function initAuth() {
-  // ダッシュボードから戻ってきたときは、URLの「#k=…」に証明がある。読んだらアドレス欄から消す
-  const m = location.hash.match(/[#&]k=([^&]+)/);
-  let token = '';
+  // ダッシュボードから戻ってきたときは、URLの「#c=…」に使い捨てのログインコードがある。読んだらアドレス欄から消す
+  const m = location.hash.match(/[#&]c=([^&]+)/);
   if (m) {
-    token = normalizeToken(m[1]);      // ここで decodeURIComponent をしてはいけない（署名が合わなくなる）
+    const code = normalizeToken(m[1]);   // ここで decodeURIComponent をしてはいけない（署名が合わなくなる）
     try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
-  } else {
-    const saved = store.get(AUTH_KEY, null);
-    if (saved && saved.token && tokenExp(saved.token) - Date.now() > 60000) token = normalizeToken(saved.token);
+    store.set(CODE_KEY, { code: code, at: Date.now() });
+    await applyToken('', code);
+    return;
   }
-  if (!token) { auth = { token: '', name: '', exp: 0, state: 'out', error: DASHBOARD_URL ? '' : 'config' }; renderAccount(); updateSendButton(); return; }
-  await applyToken(token);
+  const saved = store.get(AUTH_KEY, null);
+  if (saved && saved.token && tokenExp(saved.token) - Date.now() > 60000) { await applyToken(normalizeToken(saved.token), ''); return; }
+  const pend = store.get(CODE_KEY, null);       // 前回、引き換えの途中で閉じたとき
+  if (pend && pend.code && Date.now() - (pend.at || 0) < 8 * 60 * 1000) { await applyToken('', pend.code); return; }
+  auth = { token: '', code: '', name: '', exp: 0, state: 'out', error: DASHBOARD_URL ? '' : 'config' };
+  renderAccount(); updateSendButton();
 }
 
-/** 証明をサーバーに確かめてもらい、投稿名を受け取る */
-async function applyToken(token) {
-  auth = { token: token, name: '', exp: tokenExp(token), state: 'checking', error: '' };
+/**
+ * ログイン証明を確かめる（または、ログインコードを、ログイン証明に引き換える）。
+ *   ・ログインコード（code）：1回だけ使える。引き換えると、ボードが数時間有効の証明を返す。証明は、URLには出ない
+ *   ・混雑や通信エラーのときは、コード・証明を捨てずに、間をあけて自動でやり直す（ログインのやり直しにはしない）
+ *   ・サーバーが「不正・期限切れ・使用済み」と答えたときだけ、ログインし直してもらう
+ */
+const AUTH_RETRY_DELAYS = [1500, 3500, 7000, 12000];   // 再試行までの待ち時間（ミリ秒。実際は±30%ばらつかせる）
+const AUTH_FATAL = { auth_required: 1, auth_failed: 1, auth_expired: 1, not_configured: 1, code_invalid: 1, code_expired: 1, code_used: 1 };
+let authTrying = false;
+let authRecheck = null;
+
+async function applyToken(token, code) {
+  if (authTrying) return false;
+  authTrying = true;
+  clearTimeout(authRecheck);
+  let next = null;
+  if (token) store.set(AUTH_KEY, { token: token });
+  auth = { token: token || '', code: code || '', name: '', exp: token ? tokenExp(token) : 0, state: 'checking', error: '', note: '' };
   renderAccount(); updateSendButton();
-  let r = null;
-  try { r = await apiPost({ action: 'me', token: token }); } catch (e) { r = { ok: false, error: 'network' }; }
-  if (r && r.ok) {
-    auth.name = r.name; auth.exp = r.exp || auth.exp; auth.state = 'in'; auth.error = '';
-    store.set(AUTH_KEY, { token: token });
-  } else {
-    auth = { token: '', name: '', exp: 0, state: 'out', error: (r && r.error) || 'network' };
-    store.set(AUTH_KEY, null);
+  try {
+    for (let i = 0; ; i++) {
+      let r = null;
+      try { r = await apiPost(code ? { action: 'login', code: code } : { action: 'me', token: token }); } catch (e) { r = { ok: false, error: 'network' }; }
+      if (r && r.ok) {
+        const tk = code ? r.token : token;
+        auth = { token: tk, code: '', name: r.name, exp: r.exp || tokenExp(tk), state: 'in', error: '', note: '' };
+        store.set(AUTH_KEY, { token: tk });
+        if (code) store.set(CODE_KEY, null);
+        renderAccount(); updateSendButton();
+        return true;
+      }
+      const err = (r && r.error) || 'network';
+      if (AUTH_FATAL[err]) {
+        if (code) {                                   // 使えなかったコード：捨てる。前に取ったログイン証明が使えるなら、それで続ける
+          store.set(CODE_KEY, null);
+          const saved = store.get(AUTH_KEY, null);
+          if (saved && saved.token && tokenExp(saved.token) - Date.now() > 60000) { next = normalizeToken(saved.token); break; }
+        } else {
+          store.set(AUTH_KEY, null);
+        }
+        auth = { token: '', code: '', name: '', exp: 0, state: 'out', error: err, note: '' };
+        renderAccount(); updateSendButton();
+        return false;
+      }
+      if (i >= AUTH_RETRY_DELAYS.length) {            // 自動の再試行を使い切った：コード・証明は残して、手動と、少し後の自動で確認し直す
+        auth = { token: token || '', code: code || '', name: '', exp: token ? tokenExp(token) : 0, state: 'retry', error: 'busy', note: '' };
+        renderAccount(); updateSendButton();
+        authRecheck = setTimeout(() => { if (auth.state === 'retry') applyToken(auth.token, auth.code); }, 20000);
+        return false;
+      }
+      auth.note = '混み合っています。自動でやり直しています（' + (i + 1) + '回目）…';
+      renderAccount();
+      await sleep(AUTH_RETRY_DELAYS[i] * (0.7 + Math.random() * 0.6));
+    }
+  } finally {
+    authTrying = false;
   }
-  renderAccount(); updateSendButton();
-  return auth.state === 'in';
+  return next ? applyToken(next, '') : false;
 }
 
 function signOut() {
-  auth = { token: '', name: '', exp: 0, state: 'out', error: '' };
-  store.set(AUTH_KEY, null);
+  clearTimeout(authRecheck);
+  auth = { token: '', code: '', name: '', exp: 0, state: 'out', error: '' };
+  store.set(AUTH_KEY, null); store.set(CODE_KEY, null);
   renderAccount(); updateSendButton();
 }
 
@@ -398,6 +446,9 @@ const AUTH_MSG = {
   auth_required: 'ログインを確認できませんでした。もう一度ログインしてください。',
   auth_failed: 'ログインを確認できませんでした。もう一度ログインしてください。',
   auth_expired: 'ログインの有効期限が切れました。もう一度ログインしてください。',
+  code_used: 'このログインリンクは、すでに使われています（リンクは1回だけ使えます）。もう一度、下のボタンからログインしてください。',
+  code_expired: 'ログインリンクの有効期限が切れました。もう一度、下のボタンからログインしてください。',
+  code_invalid: 'ログインリンクを確認できませんでした。もう一度、下のボタンからログインしてください。',
   not_configured: '質問ボードのログイン設定がまだ終わっていません。担当の教員に連絡してください。',
   config: 'index.html の DASHBOARD_URL が設定されていません。',
   network: '通信できませんでした。電波の良いところで、ページを再読み込みしてください。',
@@ -417,14 +468,22 @@ function renderAccount() {
     return;
   }
   if (auth.state === 'checking') {
-    box.appendChild(h('p', { class: 'hint', text: 'ログインを確認しています…' }));
+    box.appendChild(h('p', { class: 'hint', role: 'status', text: auth.note || 'ログインを確認しています…' }));
+    return;
+  }
+  if (auth.state === 'retry') {
+    box.appendChild(h('div', { class: 'login-box' }, [
+      h('p', { class: 'login-title', text: '混み合っていて、ログインを確認できませんでした' }),
+      h('p', { class: 'hint', style: 'margin:0 0 10px', text: 'ログインは、やり直さなくて大丈夫です。少し待って、下のボタンを押してください（20秒ほどで自動でも確認します）。ページを再読み込みしても、ログイン情報は残っています。' }),
+      h('button', { class: 'btn', type: 'button', text: 'もう一度確認する', onclick: () => applyToken(auth.token, auth.code) }),
+    ]));
     return;
   }
   box.appendChild(h('div', { class: 'login-box' }, [
     h('p', { class: 'login-title', text: '質問を投稿するには、大学のアカウントでログインしてください' }),
     DASHBOARD_URL ? h('a', { class: 'btn login-link', href: loginUrl(), text: '大学のアカウントでログイン' }) : null,
     auth.error ? h('p', { class: 'status err', role: 'alert', text: AUTH_MSG[auth.error] || AUTH_MSG.auth_failed }) : null,
-    h('p', { class: 'hint', text: 'アカウントの選択画面が開いたら、@' + LOGIN_DOMAIN + ' の大学アカウントを選んでください。課題ダッシュボードで確認したあと、この画面に戻ります。質問は、あなたの投稿名で表示されます（本名は出ません）。ログインの有効時間は数時間です。' }),
+    h('p', { class: 'hint', text: 'アカウントの選択画面が開いたら、@' + LOGIN_DOMAIN + ' の大学アカウントを選んでください。課題ダッシュボードで確認したあと、「質問ボードを開く」を押すと、この画面に戻ります。質問は、あなたの投稿名で表示されます（本名は出ません）。ログインの有効時間は数時間です。別の端末でも、それぞれログインして使えます。' }),
   ]));
 }
 
@@ -474,7 +533,7 @@ let ticking = false;
 function updateSendButton() {
   if (!els.send || sending) return;
   const left = cooldownLeft();
-  if (auth.state !== 'in') { els.send.disabled = true; els.send.textContent = auth.state === 'checking' ? '確認中…' : 'ログインしてください'; }
+  if (auth.state !== 'in') { els.send.disabled = true; els.send.textContent = auth.state === 'checking' ? '確認中…' : auth.state === 'retry' ? 'ログインを確認できていません' : 'ログインしてください'; }
   else if (!settings.open) { els.send.disabled = true; els.send.textContent = '受付停止中'; }
   else if (left > 0) {
     els.send.disabled = true; els.send.textContent = 'あと' + waitText(left);
@@ -505,7 +564,7 @@ async function send() {
   const delays = [1500, 4000, 8000];
   // ログインの有効期限が切れているときは、書いた質問を残したままログインし直してもらう
   const loginAgain = (kind) => {
-    auth = { token: '', name: '', exp: 0, state: 'out', error: kind };
+    auth = { token: '', code: '', name: '', exp: 0, state: 'out', error: kind };
     store.set(AUTH_KEY, null);
     renderAccount();
     status(AUTH_MSG[kind] || AUTH_MSG.auth_failed, 'warn');
