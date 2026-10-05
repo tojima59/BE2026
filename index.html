@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>質問ボード</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
+<style>
+  :root {
+    --ink: #16223a;
+    --paper: #f4f6f9;
+    --surface: #ffffff;
+    --muted: #5b6577;
+    --rule: #d8dde6;
+    --plate: #f3c623;
+    --blue: #1f3f8f;
+    --red: #c0282d;
+    --ok: #1d6b48;
+    --warn: #8a5300;
+    --err: #b3261e;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif;
+    line-height: 1.7;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  [hidden] { display: none !important; }
+  button, input, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+  .stripe { height: 6px; background: linear-gradient(to right, var(--blue) 0 33.4%, var(--plate) 33.4% 66.7%, var(--red) 66.7% 100%); }
+
+  /* ───── 学生の画面 ───── */
+  .wrap { max-width: 640px; margin: 0 auto; padding: 18px 18px 48px; }
+  .course { margin: 0; font-size: .82rem; color: var(--muted); }
+  h1 { margin: 0; font-size: 1.4rem; line-height: 1.35; }
+  .team-bar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-top: 14px; padding: 10px 14px; border-radius: 12px; background: var(--ink); color: #fff;
+  }
+  .team-bar .k { font-size: .78rem; color: rgba(255, 255, 255, .78); }
+  .team-name { font-weight: 800; font-size: 1.1rem; padding: 0 .5em; border-radius: 8px; background: var(--plate); color: var(--ink); }
+  .team-bar button { margin-left: auto; background: none; border: 1px solid rgba(255, 255, 255, .5); color: #fff; border-radius: 8px; padding: .15em .7em; cursor: pointer; font-size: .85rem; }
+  .login-box { margin-top: 14px; padding: 14px 16px; border: 2px solid var(--rule); border-radius: 12px; background: var(--surface); }
+  .login-title { margin: 0 0 10px; font-weight: 700; }
+  .login-link { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+  .hint { margin: 6px 0 0; font-size: .85rem; color: var(--muted); }
+
+  .compose { margin-top: 16px; }
+  .compose textarea {
+    display: block; width: 100%; min-height: 110px; resize: vertical;
+    padding: .7em .8em; border: 2px solid var(--rule); border-radius: 12px; background: var(--surface); font-size: 1rem;
+  }
+  .compose textarea:focus { outline: none; border-color: var(--blue); }
+  .compose-bar { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+  .count { font-size: .85rem; color: var(--muted); margin-right: auto; }
+  .count.over { color: var(--err); font-weight: 700; }
+  .btn {
+    min-height: 46px; padding: .45em 1.3em; border: 0; border-radius: 10px; cursor: pointer;
+    background: var(--ink); color: #fff; font-weight: 700; font-size: 1rem;
+  }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .status { margin: 8px 0 0; min-height: 1.5em; font-size: .9rem; }
+  .status.ok { color: var(--ok); }
+  .status.warn { color: var(--warn); }
+  .status.err { color: var(--err); font-weight: 700; }
+
+  .list-head { display: flex; align-items: center; gap: 10px; margin: 26px 0 6px; }
+  .list-head h2 { margin: 0; font-size: 1.05rem; margin-right: auto; }
+  .sort { display: inline-flex; border: 1px solid var(--rule); border-radius: 9px; overflow: hidden; }
+  .sort button { border: 0; background: var(--surface); padding: .25em .8em; font-size: .85rem; cursor: pointer; }
+  .sort button[aria-pressed="true"] { background: var(--ink); color: #fff; font-weight: 700; }
+
+  .qs { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+  .q { display: grid; grid-template-columns: 64px 1fr; gap: 12px; padding: 12px 2px; border-bottom: 1px solid var(--rule); }
+  .q.done { opacity: .55; }
+  .like {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
+    width: 64px; min-height: 58px; border: 2px solid var(--rule); border-radius: 12px; background: var(--surface); cursor: pointer;
+  }
+  .like .n { font-size: 1.25rem; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .like .t { font-size: .72rem; color: var(--muted); }
+  .like[aria-pressed="true"] { background: var(--plate); border-color: var(--plate); }
+  .like[aria-pressed="true"] .t { color: var(--ink); }
+  .like:disabled { cursor: default; }
+  .q-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .q-meta { margin: 2px 0 0; font-size: .8rem; color: var(--muted); }
+  .badge { display: inline-block; padding: 0 .45em; border-radius: 6px; font-size: .75rem; font-weight: 700; background: #e3e9f7; color: var(--blue); margin-left: .4em; }
+  .empty { color: var(--muted); padding: 18px 2px; }
+  .notice { margin-top: 16px; padding: .8em 1em; border-left: 4px solid var(--err); background: var(--surface); border-radius: 0 10px 10px 0; }
+
+  /* ───── 投影用の画面 ───── */
+  body.screen { background: var(--ink); color: #fff; }
+  .screen-wrap { display: grid; grid-template-columns: minmax(260px, 22vw) 1fr; gap: 3vw; padding: 2.5vw 3vw; min-height: calc(100vh - 6px); }
+  .join { display: flex; flex-direction: column; gap: 1.2vw; }
+  .join h1 { font-size: clamp(1.4rem, 2.2vw, 2.4rem); color: #fff; }
+  .join .course { color: rgba(255, 255, 255, .7); font-size: clamp(.9rem, 1vw, 1.1rem); }
+  .qr { background: #fff; padding: 12px; border-radius: 14px; align-self: flex-start; width: 100%; max-width: 20vw; min-width: 200px; }
+  .qr img, .qr canvas { display: block; width: 100%; height: auto; }
+  .join-url { font-size: clamp(.8rem, .95vw, 1.05rem); overflow-wrap: anywhere; color: rgba(255, 255, 255, .85); }
+  .tally { font-size: clamp(1rem, 1.3vw, 1.4rem); }
+  .tally b { color: var(--plate); font-size: 1.6em; }
+  .board { display: flex; flex-direction: column; gap: 1.2vw; }
+  .top {
+    display: grid; grid-template-columns: auto 1fr; gap: 2vw; align-items: center;
+    background: var(--surface); color: var(--ink); border-radius: 18px; padding: 2vw 2.4vw;
+  }
+  .votes { text-align: center; min-width: 7vw; }
+  .votes .n { display: block; font-size: clamp(2.6rem, 5.4vw, 6rem); font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
+  .votes .t { font-size: clamp(.8rem, 1vw, 1.1rem); color: var(--muted); }
+  .top .q-text { font-size: clamp(1.4rem, 2.6vw, 3rem); font-weight: 700; line-height: 1.45; }
+  .top .q-meta { font-size: clamp(.9rem, 1.2vw, 1.3rem); }
+  .rest { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .rest li { display: grid; grid-template-columns: 5vw 1fr auto; gap: 1.6vw; align-items: baseline; padding: 1vw .4vw; border-bottom: 1px solid rgba(255, 255, 255, .18); }
+  .rest .n { font-size: clamp(1.4rem, 2.2vw, 2.6rem); font-weight: 800; color: var(--plate); text-align: right; font-variant-numeric: tabular-nums; }
+  .rest .q-text { font-size: clamp(1rem, 1.5vw, 1.8rem); }
+  .rest .q-meta { color: rgba(255, 255, 255, .65); font-size: clamp(.8rem, 1vw, 1.1rem); }
+  .rest li.done, .top.done { opacity: .5; }
+  .rest li.hidden-q { opacity: .45; text-decoration: line-through; }
+  .admin { display: flex; gap: 6px; }
+  .admin button { border: 1px solid rgba(255, 255, 255, .5); background: none; color: #fff; border-radius: 8px; padding: .1em .6em; cursor: pointer; font-size: .85rem; white-space: nowrap; }
+  .top .admin button { border-color: var(--rule); color: var(--ink); }
+  .screen .empty { color: rgba(255, 255, 255, .7); font-size: 1.4rem; }
+  @media (max-width: 800px) { .screen-wrap { grid-template-columns: 1fr; } }
+
+  /* ───── 講師用の画面 ───── */
+  .speaker-wrap { max-width: 1400px; margin: 0 auto; padding: 2.4vw 3vw 4vw; display: flex; flex-direction: column; gap: 1.6vw; }
+  .speaker-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 24px; }
+  .speaker-head h1 { color: #fff; font-size: clamp(1.3rem, 2vw, 2.2rem); margin-right: auto; }
+  .speaker-head .course { color: rgba(255, 255, 255, .7); width: 100%; }
+  .speaker-note { margin: 0; color: rgba(255, 255, 255, .7); font-size: clamp(.85rem, 1vw, 1.05rem); }
+
+  /* ───── 講師用・管理用：並べ替え・検索・キープ ───── */
+  .manage-col { display: flex; flex-direction: column; gap: 1.2vw; min-width: 0; }
+  .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+  .sort.dark { border-color: rgba(255, 255, 255, .35); }
+  .sort.dark button { background: transparent; color: #fff; }
+  .sort.dark button[aria-pressed="true"] { background: var(--plate); color: var(--ink); }
+  .search { flex: 1; min-width: 200px; max-width: 420px; padding: .45em .8em; border-radius: 10px; border: 1px solid rgba(255, 255, 255, .35); background: rgba(255, 255, 255, .08); color: #fff; font-size: 1rem; }
+  .search::placeholder { color: rgba(255, 255, 255, .55); }
+  .shown-count { color: rgba(255, 255, 255, .75); font-size: .95rem; }
+  .kept { background: var(--surface); color: var(--ink); border-radius: 18px; padding: 1.2vw 1.8vw; }
+  .kept h2 { margin: 0 0 .3em; font-size: clamp(1.1rem, 1.5vw, 1.6rem); }
+  .kept-list { list-style: none; margin: 0; padding: 0; }
+  .kept-list li { display: grid; grid-template-columns: 4.5vw 1fr auto; gap: 1.4vw; align-items: baseline; padding: .8vw .2vw; border-bottom: 1px solid var(--rule); }
+  .kept-list li:last-child { border-bottom: 0; }
+  .kept-list li.done { opacity: .5; }
+  .kept-list .n { font-size: clamp(1.3rem, 2vw, 2.4rem); font-weight: 800; text-align: right; font-variant-numeric: tabular-nums; }
+  .kept-list .q-text { font-size: clamp(1.1rem, 1.7vw, 2rem); font-weight: 700; }
+  .kept-list .q-meta { color: var(--muted); font-size: clamp(.8rem, 1vw, 1.1rem); }
+  .keep { border: 1px solid rgba(255, 255, 255, .5); background: none; color: #fff; border-radius: 8px; padding: .2em .9em; cursor: pointer; font-size: .95rem; font-weight: 700; white-space: nowrap; }
+  .keep.on { background: var(--plate); border-color: var(--plate); color: var(--ink); }
+  .kept .keep { border-color: var(--rule); color: var(--ink); background: var(--paper); }
+
+  /* ───── 受付の状態・管理パネル ───── */
+  .state-badge { display: inline-block; padding: .05em .6em; border-radius: 999px; font-size: .8em; font-weight: 700; vertical-align: .1em; }
+  .state-badge.open { background: #e3f2ea; color: var(--ok); }
+  .state-badge.closed { background: #fbe4e2; color: var(--err); }
+  .panel { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border: 1px solid rgba(255, 255, 255, .3); border-radius: 14px; }
+  .panel-title { margin: 4px 0 0; font-size: .85rem; color: rgba(255, 255, 255, .75); font-weight: 700; }
+  .panel-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .panel select { min-height: 36px; padding: .2em .5em; border-radius: 8px; border: 1px solid rgba(255, 255, 255, .4); background: rgba(255, 255, 255, .1); color: #fff; }
+  .panel select option { color: var(--ink); }
+  .panel-btn { min-height: 36px; padding: .2em .9em; border: 0; border-radius: 8px; background: var(--plate); color: var(--ink); font-weight: 700; cursor: pointer; }
+  .panel-msg { margin: 0; min-height: 1.4em; font-size: .85rem; color: rgba(255, 255, 255, .85); }
+  @media (prefers-reduced-motion: no-preference) { .like[aria-pressed="true"] { transition: background .15s; } }
+</style>
+</head>
+<body>
+<div class="stripe" aria-hidden="true"></div>
+<div id="app"></div>
+
+<script>
+/* ═════════ 設定：質問ボードのGASのURL（…/exec）と、課題ダッシュボードのURL（…/exec）を貼る ═════════ */
+const API_URL = 'https://script.google.com/macros/s/AKfycbxvvjDI1EEkLUMqE2H2gtcZ6Z3c_99Im3kbpugW8GT12_Ur2M0nnzU4OCrmEbty-JeK/exec';
+const DASHBOARD_URL = 'https://script.google.com/a/macros/soka-u.jp/s/AKfycbzMFqSWM8wiCqKJnFWZJGTyhlXwdXWZwqt1i86bBHi7mHAo5RMFNjMz_SPfYxDGkRIatw/exec';   // 課題ダッシュボード（大学側のウェブアプリ）のURL（…/exec）。ログインはここで行う
+const COURSE = '行動経済学入門';
+const MAX_TEXT = 200;
+const COOLDOWN_MIN = 5;   // 表示用（実際の制限はサーバー側の COOLDOWN_SEC）
+
+/* ═════════ URLのパラメータ ═════════
+ *   ?e=第3回               … イベント（回）ごとに質問を分ける
+ *   ?view=screen           … 投影用の画面
+ *   ?view=screen&key=合言葉 … 投影用の画面＋管理（非表示・読み上げ済み）
+ *   ?view=speaker          … 講師用の画面（読むだけ。投稿欄・ボタン・QRコードなし）
+ *   &t=対談①              … 画面に出すタイトル（省略時は e）
+ */
+const P = new URLSearchParams(location.search);
+const EVENT = (P.get('e') || 'default').slice(0, 40);
+const TITLE = P.get('t') || (EVENT === 'default' ? '講師への質問' : EVENT + '　講師への質問');
+const SCREEN = P.get('view') === 'screen';
+const SPEAKER = P.get('view') === 'speaker';
+const BOARD = SCREEN || SPEAKER;   // いいね順の一覧を大きく表示する画面
+const KEY = P.get('key') || '';
+const MANAGE = SPEAKER || (SCREEN && Boolean(KEY));   // 全件を並べ替え・検索できる画面（講師用・管理用）
+
+/* ═════════ 端末に保存する情報 ═════════ */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+};
+function uuid() { return (crypto.randomUUID ? crypto.randomUUID() : 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2)); }
+const DEVICE = store.get('qaDevice', null) || (function () { const d = uuid(); store.set('qaDevice', d); return d; })();
+const LIKED_KEY = 'qaLiked:' + EVENT;
+const PENDING_KEY = 'qaPending:' + EVENT;
+const LAST_KEY = 'qaLast:' + EVENT;   // 最後に投稿した時刻
+const WAIT_KEY = 'qaWait:' + EVENT;   // サーバーから「あと◯秒」と言われたときの待ち終わりの時刻
+
+let questions = [];
+let settings = { open: true, cooldown: COOLDOWN_MIN * 60 };   // 受付中か・投稿後の待機秒数（管理用の画面で変更）
+let liked = new Set(store.get(LIKED_KEY, []));
+let likeQueue = store.get('qaLikeQueue:' + EVENT, []);
+let boost = {};          // いいねを押した直後の表示用（サーバーの数に反映されるまで）
+let sortBy = 'likes';
+let boardSort = 'likes';   // 講師用・管理用の並べ替え
+let boardQuery = '';       // 講師用・管理用の検索
+const KEEP_KEY = 'qaKeep:' + EVENT;
+let kept = store.get(KEEP_KEY, []);   // 講師がキープした質問（この端末だけに保存）
+let loading = false;
+
+/* ═════════ 通信 ═════════ */
+async function apiGet() {
+  const url = API_URL + '?action=list&e=' + encodeURIComponent(EVENT) + (KEY ? '&key=' + encodeURIComponent(KEY) : '') + '&_=' + Date.now();
+  const r = await fetch(url, { cache: 'no-store' });
+  return r.json();
+}
+async function apiPost(data) {
+  // Content-Type を付けない（text/plain になり、事前確認の通信が発生しない）
+  const r = await fetch(API_URL, { method: 'POST', body: JSON.stringify(Object.assign({ e: EVENT, device: DEVICE }, data)) });
+  return r.json();
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function load() {
+  if (!API_URL || loading) return;
+  loading = true;
+  try {
+    const j = await apiGet();
+    if (j && j.ok) {
+      questions = j.questions || [];
+      if (j.settings) settings = j.settings;
+      render(); setConn('');
+      if (!BOARD) { renderSettingsForStudent(); updateSendButton(); }
+      if (SCREEN && KEY) renderPanel();
+    }
+    else setConn('一覧を読み込めませんでした。自動でやり直します。');
+  } catch (e) {
+    setConn('通信できませんでした。自動でやり直します。');
+  } finally { loading = false; }
+}
+
+/* ═════════ 画面の部品 ═════════ */
+function h(tag, attrs, kids) {
+  const n = document.createElement(tag);
+  Object.entries(attrs || {}).forEach(([k, v]) => {
+    if (v === null || v === undefined || v === false) return;
+    if (k === 'class') n.className = v;
+    else if (k === 'text') n.textContent = v;
+    else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+    else n.setAttribute(k, v === true ? '' : v);
+  });
+  [].concat(kids || []).forEach(c => { if (c !== null && c !== undefined && c !== false) n.appendChild(typeof c === 'string' ? document.createTextNode(c) : c); });
+  return n;
+}
+function timeText(ms) {
+  if (!ms) return '';
+  const d = new Date(ms);
+  return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+function likesOf(q) { return Math.max(q.likes, boost[q.id] || 0); }
+function sorted(list) {
+  return list.slice().sort((a, b) => {
+    if (BOARD && a.done !== b.done) return a.done ? 1 : -1;
+    if (sortBy === 'likes' || BOARD) return (likesOf(b) - likesOf(a)) || (a.time - b.time);
+    return b.time - a.time;
+  });
+}
+
+let connEl = null;
+function setConn(msg) { if (connEl) { connEl.textContent = msg; connEl.hidden = !msg; } }
+
+/* ═════════ 学生の画面 ═════════ */
+let els = {};
+function buildStudent() {
+  const app = document.getElementById('app');
+  app.appendChild(h('div', { class: 'wrap' }, [
+    h('p', { class: 'course', text: COURSE }),
+    h('h1', { text: TITLE }),
+    els.teamBox = h('div'),
+    h('section', { class: 'compose', 'aria-label': '質問を投稿する' }, [
+      els.ta = h('textarea', { maxlength: String(MAX_TEXT), placeholder: '講師に聞いてみたいことを書いてください', 'aria-label': '質問' }),
+      h('div', { class: 'compose-bar' }, [
+        els.count = h('span', { class: 'count', text: '0 / ' + MAX_TEXT }),
+        els.send = h('button', { class: 'btn', type: 'button', text: '投稿する', onclick: send }),
+      ]),
+      els.closed = h('p', { class: 'notice', hidden: true, text: 'いまは質問を受け付けていません。質問を書いておくことはできます（受付が始まったら「投稿する」を押してください）。' }),
+      els.hint = h('p', { class: 'hint' }),
+      els.status = h('p', { class: 'status', role: 'status' }),
+    ]),
+    connEl = h('p', { class: 'notice', hidden: true }),
+    h('div', { class: 'list-head' }, [
+      els.listTitle = h('h2', { text: 'みんなの質問' }),
+      h('div', { class: 'sort', role: 'group', 'aria-label': '並べ替え' }, [
+        els.sLikes = h('button', { type: 'button', 'aria-pressed': 'true', text: 'いいね順', onclick: () => setSort('likes') }),
+        els.sNew = h('button', { type: 'button', 'aria-pressed': 'false', text: '新しい順', onclick: () => setSort('new') }),
+      ]),
+    ]),
+    els.list = h('ul', { class: 'qs' }),
+  ]));
+  els.ta.addEventListener('input', () => {
+    const n = els.ta.value.length;
+    els.count.textContent = n + ' / ' + MAX_TEXT;
+    els.count.className = 'count' + (n > MAX_TEXT ? ' over' : '');
+    // 書きかけの質問は端末に保存（文章を直したら、新しい投稿として扱う）
+    store.set(PENDING_KEY, els.ta.value.trim() ? { text: els.ta.value, req: null } : null);
+  });
+  const pend = store.get(PENDING_KEY, null);
+  if (pend && pend.text) { els.ta.value = pend.text; els.ta.dispatchEvent(new Event('input')); status('送信していない質問を復元しました。', 'warn'); }
+  renderAccount();
+  renderSettingsForStudent();
+  tickCooldown();
+}
+
+/* ───── ログイン（課題ダッシュボードで大学アカウントにログインし、証明つきのリンクで戻ってくる） ───── */
+const AUTH_KEY = 'qaAuth';
+let auth = { token: '', name: '', exp: 0, state: 'checking', error: '' };   // state: checking / out / in
+
+/** 証明の有効期限（表示用。本当の確認はサーバーが行う）。形式：v1.名前.期限(ms).署名 */
+function tokenExp(t) { const p = String(t).split('.'); return p.length === 4 ? Number(p[2]) || 0 : 0; }
+function authFresh(margin) { return Boolean(auth.token) && auth.exp - Date.now() > (margin || 0); }
+
+/** ログインへのリンク：ダッシュボードで本人確認 → 証明つきでこのページ（同じ回）に戻る */
+function loginUrl() {
+  const back = location.origin + location.pathname + location.search;
+  return DASHBOARD_URL + (DASHBOARD_URL.indexOf('?') === -1 ? '?' : '&') + 'page=board&r=' + encodeURIComponent(back);
+}
+
+async function initAuth() {
+  // ダッシュボードから戻ってきたときは、URLの「#k=…」に証明がある。読んだらアドレス欄から消す
+  const m = location.hash.match(/[#&]k=([^&]+)/);
+  let token = '';
+  if (m) {
+    token = decodeURIComponent(m[1]);
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+  } else {
+    const saved = store.get(AUTH_KEY, null);
+    if (saved && saved.token && tokenExp(saved.token) - Date.now() > 60000) token = saved.token;
+  }
+  if (!token) { auth = { token: '', name: '', exp: 0, state: 'out', error: DASHBOARD_URL ? '' : 'config' }; renderAccount(); updateSendButton(); return; }
+  await applyToken(token);
+}
+
+/** 証明をサーバーに確かめてもらい、投稿名を受け取る */
+async function applyToken(token) {
+  auth = { token: token, name: '', exp: tokenExp(token), state: 'checking', error: '' };
+  renderAccount(); updateSendButton();
+  let r = null;
+  try { r = await apiPost({ action: 'me', token: token }); } catch (e) { r = { ok: false, error: 'network' }; }
+  if (r && r.ok) {
+    auth.name = r.name; auth.exp = r.exp || auth.exp; auth.state = 'in'; auth.error = '';
+    store.set(AUTH_KEY, { token: token });
+  } else {
+    auth = { token: '', name: '', exp: 0, state: 'out', error: (r && r.error) || 'network' };
+    store.set(AUTH_KEY, null);
+  }
+  renderAccount(); updateSendButton();
+  return auth.state === 'in';
+}
+
+function signOut() {
+  auth = { token: '', name: '', exp: 0, state: 'out', error: '' };
+  store.set(AUTH_KEY, null);
+  renderAccount(); updateSendButton();
+}
+
+const AUTH_MSG = {
+  expired: 'ログインの有効期限が切れました。もう一度ログインしてください（書いた質問は残っています）。',
+  auth_required: 'ログインを確認できませんでした。もう一度ログインしてください。',
+  auth_failed: 'ログインを確認できませんでした。もう一度ログインしてください。',
+  auth_expired: 'ログインの有効期限が切れました。もう一度ログインしてください。',
+  not_configured: '質問ボードのログイン設定がまだ終わっていません。担当の教員に連絡してください。',
+  config: 'index.html の DASHBOARD_URL が設定されていません。',
+  network: '通信できませんでした。電波の良いところで、ページを再読み込みしてください。',
+};
+
+function renderAccount() {
+  const box = els.teamBox;
+  if (!box) return;
+  box.innerHTML = '';
+  if (auth.state === 'in') {
+    box.appendChild(h('div', { class: 'team-bar' }, [
+      h('span', { class: 'k', text: 'あなたの投稿名' }),
+      h('span', { class: 'team-name', text: auth.name }),
+      h('button', { type: 'button', text: 'ログアウト', onclick: signOut }),
+    ]));
+    box.appendChild(h('p', { class: 'hint', text: '大学のアカウントでログインしています。質問は、この名前で表示されます。' }));
+    return;
+  }
+  if (auth.state === 'checking') {
+    box.appendChild(h('p', { class: 'hint', text: 'ログインを確認しています…' }));
+    return;
+  }
+  box.appendChild(h('div', { class: 'login-box' }, [
+    h('p', { class: 'login-title', text: '質問を投稿するには、大学のアカウントでログインしてください' }),
+    DASHBOARD_URL ? h('a', { class: 'btn login-link', href: loginUrl(), text: '大学のアカウントでログイン' }) : null,
+    auth.error ? h('p', { class: 'status err', role: 'alert', text: AUTH_MSG[auth.error] || AUTH_MSG.auth_failed }) : null,
+    h('p', { class: 'hint', text: '課題ダッシュボードで大学のアカウントを確認し、この画面に戻ります。質問は、あなたの投稿名で表示されます（本名は出ません）。ログインの有効時間は数時間です。' }),
+  ]));
+}
+
+function setSort(s) {
+  sortBy = s;
+  els.sLikes.setAttribute('aria-pressed', String(s === 'likes'));
+  els.sNew.setAttribute('aria-pressed', String(s === 'new'));
+  render();
+}
+
+function status(msg, kind) { els.status.textContent = msg || ''; els.status.className = 'status' + (kind ? ' ' + kind : ''); }
+
+function renderStudent() {
+  const list = sorted(questions);
+  els.listTitle.textContent = 'みんなの質問（' + list.length + '件）';
+  els.list.innerHTML = '';
+  if (!list.length) { els.list.appendChild(h('li', { class: 'empty', text: 'まだ質問はありません。最初の質問を投稿してみましょう。' })); return; }
+  list.forEach(q => {
+    const mine = liked.has(q.id);
+    els.list.appendChild(h('li', { class: 'q' + (q.done ? ' done' : '') }, [
+      h('button', { class: 'like', type: 'button', 'aria-pressed': String(mine), disabled: mine, 'aria-label': (mine ? 'いいね済み' : 'いいね') + '（' + likesOf(q) + '）', onclick: () => like(q) }, [
+        h('span', { class: 'n', text: String(likesOf(q)) }), h('span', { class: 't', text: 'いいね' }),
+      ]),
+      h('div', null, [
+        h('p', { class: 'q-text', text: q.text }),
+        h('p', { class: 'q-meta' }, [q.team + '　' + timeText(q.time), q.done ? h('span', { class: 'badge', text: '読み上げ済み' }) : null]),
+      ]),
+    ]));
+  });
+}
+
+/* ───── 投稿 ───── */
+function waitText(sec) {
+  return sec >= 60 ? Math.floor(sec / 60) + '分' + (sec % 60 ? (sec % 60) + '秒' : '') : sec + '秒';
+}
+function durText(sec) {
+  return sec >= 60 && sec % 60 === 0 ? sec / 60 + '分' : waitText(sec);
+}
+/** 残りの待ち時間：最後に投稿した時刻＋いまの設定（途中で設定が変わってもすぐ反映） */
+function cooldownLeft() {
+  const last = store.get(LAST_KEY, 0);
+  const a = last && settings.cooldown > 0 ? Math.ceil((last + settings.cooldown * 1000 - Date.now()) / 1000) : 0;
+  const b = Math.ceil((store.get(WAIT_KEY, 0) - Date.now()) / 1000);
+  return Math.max(0, a, b);
+}
+let ticking = false;
+function updateSendButton() {
+  if (!els.send || sending) return;
+  const left = cooldownLeft();
+  if (auth.state !== 'in') { els.send.disabled = true; els.send.textContent = auth.state === 'checking' ? '確認中…' : 'ログインしてください'; }
+  else if (!settings.open) { els.send.disabled = true; els.send.textContent = '受付停止中'; }
+  else if (left > 0) {
+    els.send.disabled = true; els.send.textContent = 'あと' + waitText(left);
+    if (!ticking) { ticking = true; setTimeout(() => { ticking = false; updateSendButton(); }, 500); }
+  } else { els.send.disabled = false; els.send.textContent = '投稿する'; }
+}
+function tickCooldown() { updateSendButton(); }
+function renderSettingsForStudent() {
+  if (!els.hint) return;
+  els.hint.textContent = settings.cooldown > 0
+    ? '1つ投稿すると、' + durText(settings.cooldown) + '間は次の質問を投稿できません。よく考えてから投稿しましょう。' : '';
+  els.hint.hidden = !(settings.cooldown > 0);
+  els.closed.hidden = settings.open;
+}
+let sending = false;
+async function send() {
+  const text = els.ta.value.trim();
+  if (auth.state !== 'in') { status('先に大学のアカウントでログインしてください。', 'err'); return; }
+  if (!text) { status('質問を入力してください。', 'err'); els.ta.focus(); return; }
+  if (text.length > MAX_TEXT) { status(MAX_TEXT + '文字以内にしてください。', 'err'); return; }
+  if (!settings.open) { status('いまは質問を受け付けていません。', 'warn'); return; }
+  if (cooldownLeft() > 0 || sending) return;
+  let pend = store.get(PENDING_KEY, null) || {};
+  if (!pend.req || pend.text !== els.ta.value) pend = { text: els.ta.value, req: uuid() };
+  store.set(PENDING_KEY, pend);
+  sending = true; els.send.disabled = true; els.ta.readOnly = true;
+  status('投稿しています…');
+  const delays = [1500, 4000, 8000];
+  // ログインの有効期限が切れているときは、書いた質問を残したままログインし直してもらう
+  const loginAgain = (kind) => {
+    auth = { token: '', name: '', exp: 0, state: 'out', error: kind };
+    store.set(AUTH_KEY, null);
+    renderAccount();
+    status(AUTH_MSG[kind] || AUTH_MSG.auth_failed, 'warn');
+  };
+  try {
+    if (!authFresh(30000)) { loginAgain('expired'); return; }
+    for (let i = 0; ; i++) {
+      let res = null;
+      try { res = await apiPost({ action: 'post', text: text, req: pend.req, token: auth.token }); } catch (e) { res = { ok: false, error: 'network' }; }
+      if (res.ok) {
+        els.ta.value = ''; els.ta.dispatchEvent(new Event('input')); store.set(PENDING_KEY, null);
+        store.set(LAST_KEY, Date.now()); store.set(WAIT_KEY, 0);
+        if (typeof res.cooldown === 'number') settings.cooldown = res.cooldown;
+        status(res.duplicate ? 'この質問は投稿済みでした（二重には投稿していません）。' : '投稿しました。', 'ok');
+        setSort('new'); load();
+        return;
+      }
+      if (res.error === 'cooldown') { store.set(WAIT_KEY, Date.now() + (res.wait || 10) * 1000); status('続けて投稿できません。あと' + waitText(res.wait || 10) + '待ってから投稿してください。', 'warn'); return; }
+      if (res.error === 'closed') { settings.open = false; renderSettingsForStudent(); status('いまは質問を受け付けていません。書いた質問は残っています。', 'warn'); return; }
+      if (res.error === 'too_long') { status('質問は' + MAX_TEXT + '文字以内にしてください。', 'err'); return; }
+      if (res.error === 'text_required') { status('質問を入力してください。', 'err'); return; }
+      if (res.error === 'auth_required' || res.error === 'auth_expired' || res.error === 'auth_failed') { loginAgain('expired'); return; }
+      if (res.error === 'not_configured') { loginAgain(res.error); return; }
+      if (i >= delays.length) { status('投稿できませんでした。書いた質問は残っています。少し待ってから、もう一度「投稿する」を押してください（二重には投稿されません）。', 'err'); return; }
+      status('混み合っています。自動でもう一度送っています（' + (i + 1) + '回目）…', 'warn');
+      await sleep(delays[i]);
+    }
+  } finally {
+    sending = false; els.ta.readOnly = false; updateSendButton();
+  }
+}
+
+/* ───── いいね（数秒ごとにまとめて送る） ───── */
+function like(q) {
+  if (liked.has(q.id)) return;
+  liked.add(q.id); store.set(LIKED_KEY, Array.from(liked));
+  boost[q.id] = q.likes + 1;
+  likeQueue.push(q.id); store.set('qaLikeQueue:' + EVENT, likeQueue);
+  render();
+}
+let flushing = false;
+async function flushLikes() {
+  if (flushing || !likeQueue.length || !API_URL) return;
+  flushing = true;
+  const ids = likeQueue.slice(0, 50);
+  try {
+    const res = await apiPost({ action: 'like', ids: ids });
+    if (res && res.ok) {
+      likeQueue = likeQueue.filter(id => ids.indexOf(id) === -1);
+      store.set('qaLikeQueue:' + EVENT, likeQueue);
+    }
+  } catch (e) { /* 次の回にもう一度送る */ }
+  finally { flushing = false; }
+}
+
+/* ═════════ 投影用の画面 ═════════ */
+function buildScreen() {
+  document.body.classList.add('screen');
+  const joinUrl = location.origin + location.pathname + (EVENT !== 'default' ? '?e=' + encodeURIComponent(EVENT) : '') + (P.get('t') ? (EVENT !== 'default' ? '&' : '?') + 't=' + encodeURIComponent(P.get('t')) : '');
+  const app = document.getElementById('app');
+  app.appendChild(h('div', { class: 'screen-wrap' }, [
+    h('aside', { class: 'join' }, [
+      h('p', { class: 'course', text: COURSE }),
+      h('h1', { text: TITLE }),
+      els.qr = h('div', { class: 'qr', 'aria-label': '参加用のQRコード' }),
+      h('p', { class: 'join-url', text: (function () { try { return decodeURI(joinUrl); } catch (e) { return joinUrl; } })() }),
+      els.tally = h('p', { class: 'tally' }),
+      KEY ? buildPanel() : null,
+      KEY ? h('p', { class: 'join-url', text: '管理モード：質問の「読み上げ済み」「非表示」を切り替えられます' }) : null,
+      connEl = h('p', { class: 'join-url', hidden: true }),
+    ]),
+    KEY ? h('div', { class: 'manage-col' }, [
+      els.tools = h('div', { class: 'tools' }),
+      els.board = h('section', { class: 'board', 'aria-label': '質問の一覧' }),
+    ]) : (els.board = h('section', { class: 'board', 'aria-label': 'いいねの多い質問' })),
+  ]));
+  if (KEY) buildTools(els.tools);
+  // QRコード（ライブラリを読み込めなかったときは、URLの表示だけにする）
+  let tries = 0;
+  const makeQr = () => {
+    if (window.QRCode) { new QRCode(els.qr, { text: joinUrl, width: 480, height: 480, correctLevel: QRCode.CorrectLevel.M }); }
+    else if (++tries < 20) setTimeout(makeQr, 300);
+    else els.qr.hidden = true;
+  };
+  makeQr();
+}
+
+/* ───── 管理用：受付の開始・締切と、待機時間 ───── */
+const CD_OPTIONS = [[0, 'なし'], [30, '30秒'], [60, '1分'], [120, '2分'], [180, '3分'], [300, '5分'], [600, '10分'], [900, '15分']];
+function buildPanel() {
+  els.cdSel = h('select', { 'aria-label': '投稿後の待機時間' });
+  els.cdSel.addEventListener('change', () => { els.cdSel.dataset.dirty = '1'; });
+  const panel = h('div', { class: 'panel' }, [
+    h('p', { class: 'panel-title', text: '質問の受付' }),
+    h('div', { class: 'panel-row' }, [
+      els.openState = h('span', { class: 'state-badge' }),
+      els.openBtn = h('button', { type: 'button', class: 'panel-btn', onclick: toggleOpen }),
+    ]),
+    h('p', { class: 'panel-title', text: '投稿後の待機時間' }),
+    h('div', { class: 'panel-row' }, [els.cdSel, h('button', { type: 'button', class: 'panel-btn', text: '変更する', onclick: saveCooldown })]),
+    els.panelMsg = h('p', { class: 'panel-msg', role: 'status' }),
+  ]);
+  renderPanel();
+  return panel;
+}
+function renderPanel() {
+  if (!els.openState) return;
+  els.openState.className = 'state-badge ' + (settings.open ? 'open' : 'closed');
+  els.openState.textContent = settings.open ? '受付中' : '受付停止中';
+  els.openBtn.textContent = settings.open ? '受付を締め切る' : '受付を開始する';
+  if (!els.cdSel.dataset.dirty) {
+    const opts = CD_OPTIONS.slice();
+    if (!opts.some(o => o[0] === settings.cooldown)) opts.push([settings.cooldown, durText(settings.cooldown)]);
+    els.cdSel.innerHTML = '';
+    opts.forEach(([v, label]) => els.cdSel.appendChild(h('option', { value: String(v), text: label })));
+    els.cdSel.value = String(settings.cooldown);
+  }
+}
+async function saveSettings(data, done) {
+  els.panelMsg.textContent = '変更しています…';
+  try {
+    const r = await apiPost(Object.assign({ action: 'settings', key: KEY }, data));
+    if (!r.ok) { els.panelMsg.textContent = '変更できませんでした（' + r.error + '）'; return; }
+    settings = r.settings;
+    els.cdSel.dataset.dirty = '';
+    renderPanel(); render();
+    els.panelMsg.textContent = done(settings);
+  } catch (e) { els.panelMsg.textContent = '通信できませんでした。もう一度押してください。'; }
+}
+function toggleOpen() {
+  const next = !settings.open;
+  if (!next && !confirm('質問の受付を締め切りますか？\n（学生は投稿できなくなります。いいねは引き続き押せます）')) return;
+  saveSettings({ open: next }, s => s.open ? '受付を開始しました。' : '受付を締め切りました。');
+}
+function saveCooldown() {
+  saveSettings({ cooldown: Number(els.cdSel.value) }, s => '待機時間を「' + (s.cooldown ? durText(s.cooldown) : 'なし') + '」にしました（待っている学生にもすぐ反映されます）。');
+}
+
+function buildSpeaker() {
+  document.body.classList.add('screen');
+  const app = document.getElementById('app');
+  app.appendChild(h('div', { class: 'speaker-wrap' }, [
+    h('header', { class: 'speaker-head' }, [
+      h('p', { class: 'course', text: COURSE }),
+      h('h1', { text: TITLE }),
+      els.tally = h('p', { class: 'tally' }),
+    ]),
+    h('p', { class: 'speaker-note', text: '学生からの質問をすべて表示しています（自動で更新されます）。回答したい質問は「キープする」を押すと、上の「キープした質問」に固定されます。' }),
+    connEl = h('p', { class: 'speaker-note', hidden: true }),
+    els.kept = h('section', { class: 'kept', 'aria-label': 'キープした質問', hidden: true }),
+    els.tools = h('div', { class: 'tools' }),
+    els.board = h('section', { class: 'board', 'aria-label': '質問の一覧' }),
+  ]));
+  buildTools(els.tools);
+}
+
+/** 並べ替えと検索（一度だけ作る。自動更新で入力中の文字が消えないように） */
+function buildTools(box) {
+  const sorts = [['likes', 'いいね順'], ['likes-asc', 'いいねの少ない順'], ['new', '新しい順'], ['old', '古い順']];
+  const group = h('div', { class: 'sort dark', role: 'group', 'aria-label': '並べ替え' });
+  sorts.forEach(([k, label]) => {
+    group.appendChild(h('button', { type: 'button', 'data-k': k, 'aria-pressed': String(k === boardSort), text: label, onclick: () => {
+      boardSort = k;
+      Array.from(group.children).forEach(b => b.setAttribute('aria-pressed', String(b.getAttribute('data-k') === k)));
+      render();
+    } }));
+  });
+  const search = h('input', { type: 'search', class: 'search', placeholder: '質問文・投稿名で検索', 'aria-label': '質問を検索' });
+  search.addEventListener('input', () => { boardQuery = search.value; render(); });
+  els.shownCount = h('span', { class: 'shown-count' });
+  box.appendChild(group);
+  box.appendChild(search);
+  box.appendChild(els.shownCount);
+}
+
+function manageSorted(list) {
+  const q = boardQuery.normalize('NFKC').trim().toLowerCase();
+  const out = q ? list.filter(x => (x.text + ' ' + x.team).normalize('NFKC').toLowerCase().indexOf(q) !== -1) : list.slice();
+  const cmp = {
+    'likes': (a, b) => (b.likes - a.likes) || (a.time - b.time),
+    'likes-asc': (a, b) => (a.likes - b.likes) || (a.time - b.time),
+    'new': (a, b) => b.time - a.time,
+    'old': (a, b) => a.time - b.time,
+  }[boardSort];
+  return out.sort(cmp);
+}
+
+function toggleKeep(id) {
+  const i = kept.indexOf(id);
+  if (i === -1) kept.push(id); else kept.splice(i, 1);
+  store.set(KEEP_KEY, kept);
+  render();
+}
+
+function keepButton(q) {
+  const on = kept.indexOf(q.id) !== -1;
+  return h('button', { type: 'button', class: 'keep' + (on ? ' on' : ''), 'aria-pressed': String(on),
+    text: on ? 'キープ中' : 'キープする', onclick: () => toggleKeep(q.id) });
+}
+
+/** 講師用・管理用：キープ＋全件の一覧 */
+function renderManage() {
+  const all = questions.filter(q => KEY || !q.hidden);
+  els.tally.innerHTML = '';
+  els.tally.appendChild(h('span', null, ['質問 ', h('b', { text: String(questions.filter(q => !q.hidden).length) }), ' 件　', h('span', { class: 'state-badge ' + (settings.open ? 'open' : 'closed'), text: settings.open ? '受付中' : '受付停止中' })]));
+
+  if (SPEAKER) {
+    const byId = {};
+    questions.forEach(q => { byId[q.id] = q; });
+    const list = kept.map(id => byId[id]).filter(q => q && !q.hidden);
+    els.kept.innerHTML = '';
+    els.kept.hidden = !list.length;
+    if (list.length) {
+      els.kept.appendChild(h('h2', { text: 'キープした質問（' + list.length + '件）' }));
+      const ol = h('ol', { class: 'kept-list' });
+      list.forEach(q => ol.appendChild(h('li', { class: q.done ? 'done' : '' }, [
+        h('span', { class: 'n', text: String(q.likes) }),
+        h('div', null, [h('p', { class: 'q-text', text: q.text }), h('p', { class: 'q-meta', text: q.team + '　いいね ' + q.likes + (q.done ? '　読み上げ済み' : '') })]),
+        h('button', { type: 'button', class: 'keep', text: '外す', onclick: () => toggleKeep(q.id) }),
+      ])));
+      els.kept.appendChild(ol);
+    }
+  }
+
+  const list = manageSorted(all);
+  els.shownCount.textContent = boardQuery.trim() ? '該当 ' + list.length + ' 件' : '全 ' + list.length + ' 件を表示';
+  els.board.innerHTML = '';
+  if (!list.length) {
+    els.board.appendChild(h('p', { class: 'empty', text: boardQuery.trim() ? '該当する質問はありません。' : 'まだ質問はありません。学生が投稿すると、ここに表示されます。' }));
+    return;
+  }
+  const ol = h('ol', { class: 'rest' });
+  list.forEach(q => {
+    ol.appendChild(h('li', { class: (q.done ? 'done' : '') + (q.hidden ? ' hidden-q' : '') }, [
+      h('span', { class: 'n', text: String(q.likes) }),
+      h('div', null, [h('p', { class: 'q-text', text: q.text }), h('p', { class: 'q-meta', text: q.team + (q.done ? '　読み上げ済み' : '') + (q.hidden ? '　非表示中' : '') })]),
+      SPEAKER ? keepButton(q) : adminButtons(q),
+    ]));
+  });
+  els.board.appendChild(ol);
+}
+
+function adminButtons(q) {
+  if (!KEY) return null;
+  const act = async (action, value) => {
+    try { const r = await apiPost({ action: action, id: q.id, value: value, key: KEY }); if (!r.ok) alert('変更できませんでした（' + r.error + '）'); }
+    catch (e) { alert('通信できませんでした。'); }
+    load();
+  };
+  return h('span', { class: 'admin' }, [
+    h('button', { type: 'button', text: q.done ? '未読に戻す' : '読み上げ済み', onclick: () => act('done', !q.done) }),
+    h('button', { type: 'button', text: q.hidden ? '表示に戻す' : '非表示', onclick: () => { if (q.hidden || confirm('この質問を非表示にしますか？')) act('hide', !q.hidden); } }),
+  ]);
+}
+
+function renderScreen() {
+  const list = sorted(questions);
+  const shown = list.filter(q => !q.hidden);
+  els.tally.innerHTML = '';
+  els.tally.appendChild(h('span', null, ['質問 ', h('b', { text: String(shown.length) }), ' 件　', h('span', { class: 'state-badge ' + (settings.open ? 'open' : 'closed'), text: settings.open ? '受付中' : '受付停止中' })]));
+  els.board.innerHTML = '';
+  if (!list.length) { els.board.appendChild(h('p', { class: 'empty', text: SPEAKER ? 'まだ質問はありません。学生が投稿すると、ここに表示されます。' : 'QRコードを読み取って、質問を投稿してください。' })); return; }
+  const [first, ...rest] = KEY ? list : shown;
+  if (!first) return;
+  els.board.appendChild(h('article', { class: 'top' + (first.done ? ' done' : '') }, [
+    h('div', { class: 'votes' }, [h('span', { class: 'n', text: String(first.likes) }), h('span', { class: 't', text: 'いいね' })]),
+    h('div', null, [
+      h('p', { class: 'q-text', text: first.text }),
+      h('p', { class: 'q-meta' }, [first.team + (first.done ? '　読み上げ済み' : '') + (first.hidden ? '　非表示中' : ''), ' ', adminButtons(first)]),
+    ]),
+  ]));
+  const ul = h('ol', { class: 'rest' });
+  rest.slice(0, KEY ? 60 : SPEAKER ? 40 : 9).forEach(q => {
+    ul.appendChild(h('li', { class: (q.done ? 'done' : '') + (q.hidden ? ' hidden-q' : '') }, [
+      h('span', { class: 'n', text: String(q.likes) }),
+      h('div', null, [h('p', { class: 'q-text', text: q.text }), h('p', { class: 'q-meta', text: q.team + (q.done ? '　読み上げ済み' : '') + (q.hidden ? '　非表示中' : '') })]),
+      adminButtons(q),
+    ]));
+  });
+  els.board.appendChild(ul);
+}
+
+function render() { MANAGE ? renderManage() : BOARD ? renderScreen() : renderStudent(); }
+
+/* ═════════ 起動 ═════════ */
+if (!API_URL) {
+  document.getElementById('app').appendChild(h('div', { class: 'wrap' }, [
+    h('h1', { text: '設定が必要です' }),
+    h('p', { class: 'notice', text: 'index.html の API_URL に、GASのウェブアプリのURL（…/exec）を貼り付けてください。' }),
+  ]));
+} else {
+  SCREEN ? buildScreen() : SPEAKER ? buildSpeaker() : buildStudent();
+  render();
+  load();
+  if (!BOARD) initAuth();
+  // 自動更新：投影画面は4秒、講師用は5秒、学生の画面は15〜20秒おき（画面を開いているときだけ）
+  const every = SCREEN ? 4000 : SPEAKER ? 5000 : 15000 + Math.floor(Math.random() * 5000);
+  setInterval(() => { if (document.visibilityState === 'visible') load(); }, every);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') load(); });
+  if (!BOARD) setInterval(flushLikes, 3000 + Math.floor(Math.random() * 1500));
+  window.addEventListener('beforeunload', () => { if (likeQueue.length) flushLikes(); });
+}
+</script>
+</body>
+</html>
