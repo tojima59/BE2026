@@ -176,6 +176,7 @@
 /* ═════════ 設定：質問ボードのGASのURL（…/exec）と、課題ダッシュボードのURL（…/exec）を貼る ═════════ */
 const API_URL = 'https://script.google.com/macros/s/AKfycbxvvjDI1EEkLUMqE2H2gtcZ6Z3c_99Im3kbpugW8GT12_Ur2M0nnzU4OCrmEbty-JeK/exec';
 const DASHBOARD_URL = 'https://script.google.com/a/macros/soka-u.jp/s/AKfycbzMFqSWM8wiCqKJnFWZJGTyhlXwdXWZwqt1i86bBHi7mHAo5RMFNjMz_SPfYxDGkRIatw/exec';   // 課題ダッシュボード（大学側のウェブアプリ）のURL（…/exec）。ログインはここで行う
+const LOGIN_DOMAIN = 'soka-u.jp';   // ログインに使うアカウントのドメイン
 const COURSE = '行動経済学入門';
 const MAX_TEXT = 200;
 const COOLDOWN_MIN = 5;   // 表示用（実際の制限はサーバー側の COOLDOWN_SEC）
@@ -331,10 +332,17 @@ let auth = { token: '', name: '', exp: 0, state: 'checking', error: '' };   // s
 function tokenExp(t) { const p = String(t).split('.'); return p.length === 4 ? Number(p[2]) || 0 : 0; }
 function authFresh(margin) { return Boolean(auth.token) && auth.exp - Date.now() > (margin || 0); }
 
-/** ログインへのリンク：ダッシュボードで本人確認 → 証明つきでこのページ（同じ回）に戻る */
+/**
+ * ログインへのリンク。別のGoogleアカウントでログイン中でも404にならないよう、
+ * 先に「アカウント選択」の画面を経由して、大学のアカウント（@soka-u.jp）を選ばせてから、ダッシュボードへ向かわせる。
+ *   アカウント選択 → （選んだアカウントで）ダッシュボードの ?page=board → 証明つきでこの画面に戻る
+ */
 function loginUrl() {
   const back = location.origin + location.pathname + location.search;
-  return DASHBOARD_URL + (DASHBOARD_URL.indexOf('?') === -1 ? '?' : '&') + 'page=board&r=' + encodeURIComponent(back);
+  // 大学ドメインのウェブアプリは、…/a/macros/soka-u.jp/s/… の形にすると、大学アカウントでの利用を前提に開く
+  const dash = DASHBOARD_URL.replace('https://script.google.com/macros/s/', 'https://script.google.com/a/macros/' + LOGIN_DOMAIN + '/s/');
+  const target = dash + (dash.indexOf('?') === -1 ? '?' : '&') + 'page=board&r=' + encodeURIComponent(back);
+  return 'https://accounts.google.com/AccountChooser?continue=' + encodeURIComponent(target) + '&hd=' + encodeURIComponent(LOGIN_DOMAIN);
 }
 
 async function initAuth() {
@@ -406,7 +414,7 @@ function renderAccount() {
     h('p', { class: 'login-title', text: '質問を投稿するには、大学のアカウントでログインしてください' }),
     DASHBOARD_URL ? h('a', { class: 'btn login-link', href: loginUrl(), text: '大学のアカウントでログイン' }) : null,
     auth.error ? h('p', { class: 'status err', role: 'alert', text: AUTH_MSG[auth.error] || AUTH_MSG.auth_failed }) : null,
-    h('p', { class: 'hint', text: '課題ダッシュボードで大学のアカウントを確認し、この画面に戻ります。質問は、あなたの投稿名で表示されます（本名は出ません）。ログインの有効時間は数時間です。' }),
+    h('p', { class: 'hint', text: 'アカウントの選択画面が開いたら、@' + LOGIN_DOMAIN + ' の大学アカウントを選んでください。課題ダッシュボードで確認したあと、この画面に戻ります。質問は、あなたの投稿名で表示されます（本名は出ません）。ログインの有効時間は数時間です。' }),
   ]));
 }
 
